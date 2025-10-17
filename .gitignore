@@ -1,0 +1,30 @@
+﻿# Python bytecode
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Jupyter
+.ipynb_checkpoints/
+
+
+# Logs and outputs
+*.log
+outputs/
+answers.txt
+contexts.txt
+conversation_summary.txt
+
+# Data folders
+data/
+images/
+extracted_images/
+
+# Virtual environments
+.env/
+.venv/
+env/
+venv/
+
+# VS Code settings
+.vscode/
