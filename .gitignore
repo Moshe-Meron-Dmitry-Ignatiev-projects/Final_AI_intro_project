@@ -21,8 +21,7 @@ conversation_summary.txt
 
 # Data folders
 
-
-
+/data/images
 
 # Virtual environments
 .env/
