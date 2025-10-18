@@ -1,0 +1,10 @@
+In one sentence, what problem does this invention solve for multi-SIM devices and how does the arbiter address it?
+Which three factors define an RF unit’s “RF signal processing capability,” and why do they matter operationally?
+If SIM1 is in PS data transfer while SIM2..SIMN are idle, which RF units are dedicated vs. shared and why?
+A new SIM3 activity with priority X appears while RF(y) handles priority Y<X; per FIG.7, can SIM3 preempt RF(y) and what happens to the displaced activity?
+What network-related parameters can the first modem share with the second (e.g., ARFCN/UARFCN/EARFCN, DL frequency), and how are they used?
+How does the design avoid MT call misses and PS performance downgrades compared to conventional multi-SIM approaches?
+Under what conditions can a second SIM perform measurements for a first SIM that’s busy, and how does this help RAT/cell reselection?
+How are activity priorities determined (user-triggered, user experience, mobility impact), and which activities are typically highest vs. lowest?
+Explain the FIG.3/FIG.4 scenarios: how are paging indicators handled while another SIM has a dedicated RF unit?
+Can you restate claim 9’s method (N≥M, capability check, priority, dynamic assignment) in ≤60 words?

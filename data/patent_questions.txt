@@ -1,0 +1,20 @@
+1. What is the official title of the patent?
+2. Who are the inventors named in this patent?
+3. Which company or institution is the assignee/owner?
+4. When was the patent filed, and when was it published?
+5. What is the application number and patent number?
+6. What problem does the invention aim to solve?
+7. In what technical field does this invention belong?
+8. What is the core idea or concept behind the invention?
+9. How is the invention different from existing solutions (prior art)?
+10. What are the main components or systems described?
+11. How many claims are in the patent?
+12. What is the broadest independent claim?
+13. What do the dependent claims add or specify?
+14. Which aspects of the invention are legally protected?
+15. Are there claims directed to both methods and devices?
+16. How many figures are included in the patent?
+17. What does Figure 1 represent?
+18. Do the figures illustrate an example embodiment or multiple variations?
+19. Are there diagrams that show process flow or architecture?
+20. How do the figures help clarify the technical details of the claims?

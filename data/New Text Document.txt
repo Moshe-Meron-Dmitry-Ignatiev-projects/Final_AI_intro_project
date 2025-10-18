@@ -1,0 +1,205 @@
+#!/usr/bin/env python3
+# coding: utf-8
+
+"""
+qa_patent_local.py
+
+• עיבוד PDF באמצעות llava (ליצירת תיאורי תמונה)  
+• אינדוקס טקסט ב-Qdrant עם SentenceTransformer  
+• שאילתות ותשובות עם llama3.2:1b דרך Ollama  
+• תשובות עד 300 תווים, ללא הזיות – רק על סמך הקונטקסט שאוחזר  
+"""
+
+import os
+import sys
+import fitz                                  # PyMuPDF
+import numpy as np
+import easyocr
+import subprocess
+from PIL import Image
+from sentence_transformers import SentenceTransformer
+from transformers import AutoProcessor, AutoModelForCausalLM
+from qdrant_client import QdrantClient
+from qdrant_client.http.models import VectorParams, PointStruct
+
+# ----------------------------------------
+# תצורה
+# ----------------------------------------
+PDF_PATH               = "patent.pdf"
+IMAGES_DIR             = "images"
+QDRANT_COLLECTION_NAME = "patent_chunks"
+
+LLAVA_PATH   = "llava_latest"
+LLAMA_MODEL  = "llama3.2:1b"
+EMBED_MODEL   = "all-MiniLM-L6-v2"
+
+# ----------------------------------------
+# OCR וטעינת מודלים
+# ----------------------------------------
+ocr_reader = easyocr.Reader(["en"], gpu=False)
+
+try:
+    processor_img = AutoProcessor.from_pretrained(LLAVA_PATH, local_files_only=True)
+    model_img     = AutoModelForCausalLM.from_pretrained(
+        LLAVA_PATH, local_files_only=True
+    )
+    embedder = SentenceTransformer(EMBED_MODEL)
+except Exception as e:
+    print(f"⛔ שגיאה בטעינת מודלים: {e}")
+    sys.exit(1)
+
+print("✅ מודלי llava ו-embedder נטענו בהצלחה")
+
+# ----------------------------------------
+# עיבוד תמונה לתיאור
+# ----------------------------------------
+def caption_image(path):
+    img = Image.open(path).convert("RGB")
+    inputs = processor_img(images=img, return_tensors="pt")
+    out = model_img.generate(**inputs, max_new_tokens=32)
+    return processor_img.decode(out[0], skip_special_tokens=True)
+
+# ----------------------------------------
+# פיצול טקסט ל־chunks
+# ----------------------------------------
+def chunk_text(text, max_chars=800):
+    chunks = []
+    i = 0
+    while i < len(text):
+        j = min(i + max_chars, len(text))
+        if j < len(text):
+            sep = max(text.rfind(".", i, j),
+                      text.rfind("\n", i, j),
+                      text.rfind(" ", i, j))
+            if sep > i:
+                j = sep + 1
+        c = text[i:j].strip()
+        if len(c) > 20:
+            chunks.append(c)
+        i = j
+    return chunks
+
+# ----------------------------------------
+# תנאי הכנה
+# ----------------------------------------
+os.makedirs(IMAGES_DIR, exist_ok=True)
+
+try:
+    doc = fitz.open(PDF_PATH)
+except Exception as e:
+    print(f"⛔ לא ניתן לפתוח PDF: {e}")
+    sys.exit(1)
+
+# ----------------------------------------
+# אינדוקס ב-Qdrant
+# ----------------------------------------
+client = QdrantClient(":memory:")
+points, texts_meta = [], []
+dim = embedder.get_sentence_embedding_dimension()
+
+client.create_collection(
+    collection_name=QDRANT_COLLECTION_NAME,
+    vectors_config=VectorParams(size=dim, distance="Cosine")
+)
+
+for p in range(len(doc)):
+    page = doc.load_page(p)
+    page_num = p + 1
+
+    # 1. טקסט מוטמע או OCR
+    txt = page.get_text().strip()
+    if not txt:
+        pix = page.get_pixmap(dpi=300)
+        arr = np.frombuffer(pix.samples, dtype=np.uint8)
+        arr = arr.reshape(pix.height, pix.width, pix.n)
+        ocr = easyocr.Reader(["en"], gpu=False).readtext(arr)
+        txt = " ".join([l[1] for l in ocr]).strip()
+
+    if txt:
+        for chunk in chunk_text(txt):
+            texts_meta.append({"type": "text", "page": page_num, "content": chunk})
+            points.append(chunk)
+
+    # 2. תמונות inline ותיאורי llava
+    for idx, img_meta in enumerate(page.get_images(full=True), start=1):
+        xref = img_meta[0]
+        img_dict = doc.extract_image(xref)
+        ext      = img_dict["ext"]
+        fname    = f"page_{page_num:03d}_img_{idx}.{ext}"
+        path     = os.path.join(IMAGES_DIR, fname)
+        with open(path, "wb") as f:
+            f.write(img_dict["image"])
+        caption = caption_image(path)
+        texts_meta.append({
+            "type":    "image",
+            "page":    page_num,
+            "content": path,
+            "caption": caption
+        })
+        # treat caption as text for embedding
+        points.append(caption)
+
+# 3. וקטוריזציה ואחסון
+vectors = embedder.encode(points, show_progress_bar=False)
+for i, vec in enumerate(vectors):
+    meta = texts_meta[i]
+    client.upsert(
+        collection_name=QDRANT_COLLECTION_NAME,
+        points=[
+            PointStruct(
+                id=i,
+                vector=vec.tolist(),
+                payload=meta
+            )
+        ]
+    )
+
+print("✅ כל הקטעים ואינדוקס Qdrant הושלמו")
+
+# ----------------------------------------
+# שלב 5: יצירת תשובות
+# ----------------------------------------
+def retrieve_context(query, top_k=5):
+    qv = embedder.encode([query])[0]
+    hits = client.search(
+        collection_name=QDRANT_COLLECTION_NAME,
+        query_vector=qv,
+        limit=top_k
+    )
+    parts = []
+    for hit in hits:
+        payload = hit.payload
+        if payload["type"] == "image":
+            parts.append(f"[Image page {payload['page']}] {payload['caption']}")
+        else:
+            parts.append(payload["content"])
+    return "\n".join(parts)
+
+def generate_answer(question):
+    ctx = retrieve_context(question)
+    prompt = (
+        "Answer using ONLY the context below. "
+        "Do not add ANYTHING else. "
+        "Limit to 300 characters.\n\n"
+        "Context:\n" + ctx + "\n\n"
+        "Question: " + question + "\nAnswer:"
+    )
+    proc = subprocess.run(
+        ["ollama", "run", LLAMA_MODEL, "--prompt", prompt],
+        capture_output=True, text=True
+    )
+    if proc.returncode != 0:
+        return None
+    return proc.stdout.strip()[:300]
+
+# לולאת שאילתות אינטראקטיבית
+print("✅ מוכן לקבל שאלות (להפסיק עם שורה ריקה)")
+while True:
+    q = input("שאלה: ").strip()
+    if not q:
+        break
+    ans = generate_answer(q)
+    if ans:
+        print("תשובה:", ans)
+    else:
+        print("⛔ יצירת תשובה נכשלה")

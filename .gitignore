@@ -7,18 +7,22 @@ __pycache__/
 # Jupyter
 .ipynb_checkpoints/
 
+# CUDA build artifacts
+*.o
+*.out
+*.exe
 
 # Logs and outputs
 *.log
 outputs/
-answers.txt
+
 contexts.txt
 conversation_summary.txt
 
 # Data folders
-data/
-images/
-extracted_images/
+
+
+
 
 # Virtual environments
 .env/
